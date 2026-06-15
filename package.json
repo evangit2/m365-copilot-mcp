@@ -1,0 +1,36 @@
+{
+  "name": "m365-copilot-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that lets any agent (especially Hermes Agent) use Microsoft 365 Copilot / GPT 5.5 Think Deeper for hard coding problems.",
+  "main": "mcp-server.js",
+  "bin": {
+    "m365-copilot-mcp": "./mcp-server.js"
+  },
+  "scripts": {
+    "start": "node mcp-server.js",
+    "install-deps": "npm install",
+    "test": "node --check mcp-server.js && node --check lib/relay-client.js && node --check lib/auth-manager.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evangit2/m365-copilot-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "m365",
+    "copilot",
+    "gpt-5.5",
+    "hermes-agent",
+    "coding-assistant"
+  ],
+  "author": "evangit2",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/evangit2/m365-copilot-mcp/issues"
+  },
+  "homepage": "https://github.com/evangit2/m365-copilot-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0"
+  }
+}
