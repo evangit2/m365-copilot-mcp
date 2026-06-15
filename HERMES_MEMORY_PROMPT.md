@@ -6,17 +6,24 @@ Save this as a memory fact so future Hermes sessions automatically know when and
 
 The user has an MCP server named **m365-copilot** that exposes Microsoft 365 Copilot / **GPT 5.5 Think Deeper**.
 
-Call `m365_copilot_chat` when the user asks for help with a genuinely hard coding problem:
-- complex architecture or system design
-- tricky debugging with subtle root causes
-- security review or vulnerability analysis
-- performance optimization
-- non-trivial code generation from scratch
-- reasoning through ambiguous requirements
+Use it as a **strong-model oracle** while the local cheap model runs the agent loop. Offload work to Copilot when any of these are true:
 
-Call `m365_copilot_suggest_edit` when the user wants an exact edit to a specific file. Pass the full current content (or a complete, well-delimited excerpt) and a clear instruction.
+- The expected output is **more than ~100 lines of code** (file, module, or substantial refactor).
+- The task requires **architecture or system design** across multiple interacting parts.
+- The task involves **subtle debugging, security review, performance optimization, or complex reasoning**.
+- The user explicitly says something like "use Copilot", "let GPT 5.5 think about this", or "this is hard".
 
-Do **not** use these tools for trivial tasks that the local model can handle directly.
+**Default workflow for writing a large file (e.g. 300 lines):**
+1. Gather context locally (read related files, understand conventions).
+2. Call `m365_copilot_suggest_edit` with `file_path`, the current/existing file content (or a placeholder if the file is new), and a detailed instruction.
+3. Apply the returned code block with `write_file` or `patch`.
+4. Verify locally with `node --check`, tests, or a quick run.
+
+For smaller edits (~20-50 lines), just use the local `patch` or `write_file` directly unless the user asks for Copilot.
+
+For open-ended analysis, planning, or review, use `m365_copilot_chat`.
+
+Do **not** use these tools for trivial one-liners that the local model can handle directly.
 
 ## How to call it
 
