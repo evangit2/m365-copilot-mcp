@@ -60,6 +60,14 @@ async function main() {
               type: 'number',
               description: 'Optional sampling temperature (0.0 - 1.0). Lower is more deterministic.',
             },
+            max_tokens: {
+              type: 'integer',
+              description: 'Optional maximum tokens for the response (default 4000).',
+            },
+            include_reasoning: {
+              type: 'boolean',
+              description: 'If true, include the model internal reasoning block in the response.',
+            },
           },
           required: ['prompt'],
         },
@@ -83,6 +91,9 @@ async function main() {
               description: 'What change to make.',
             },
             model: { type: 'string' },
+            temperature: { type: 'number' },
+            max_tokens: { type: 'integer' },
+            include_reasoning: { type: 'boolean' },
           },
           required: ['file_path', 'current_content', 'instruction'],
         },
@@ -144,10 +155,26 @@ async function main() {
     let prompt = '';
     let model = args.model || DEFAULT_MODEL;
     let temperature = args.temperature ?? 0.2;
+    let maxTokens = args.max_tokens || 4000;
+    let includeReasoning = args.include_reasoning === true;
 
     if (name === 'm365_copilot_chat') {
+      if (!args.prompt || typeof args.prompt !== 'string' || args.prompt.trim().length === 0) {
+        return {
+          content: [{ type: 'text', text: 'Missing required argument: prompt (non-empty string).' }],
+          isError: true,
+        };
+      }
       prompt = args.prompt;
     } else if (name === 'm365_copilot_suggest_edit') {
+      for (const key of ['file_path', 'current_content', 'instruction']) {
+        if (!args[key] || typeof args[key] !== 'string' || args[key].trim().length === 0) {
+          return {
+            content: [{ type: 'text', text: `Missing required argument: ${key} (non-empty string).` }],
+            isError: true,
+          };
+        }
+      }
       prompt = buildEditPrompt(args.file_path, args.current_content, args.instruction);
     } else {
       return {
@@ -157,8 +184,8 @@ async function main() {
     }
 
     try {
-      const result = await client.chat(prompt, { model, temperature });
-      const text = formatResult(result);
+      const result = await client.chat(prompt, { model, temperature, max_tokens: maxTokens, include_reasoning: includeReasoning });
+      const text = formatResult(result, includeReasoning);
       return { content: [{ type: 'text', text }] };
     } catch (e) {
       return {
@@ -193,9 +220,9 @@ Please return ONLY:
 Do not include diff markers, line numbers, or patch notation unless requested. The agent will apply the exact code block content as the new file contents.`;
 }
 
-function formatResult(result) {
+function formatResult(result, includeReasoning = false) {
   let out = '';
-  if (result.reasoning) {
+  if (includeReasoning && result.reasoning) {
     out += `Reasoning:\n${result.reasoning}\n\n`;
   }
   out += result.content;
