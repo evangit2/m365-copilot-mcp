@@ -1,30 +1,58 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-G365_REPO="${G365_RELAY_REPO:-$HOME/projects/g365-headless-relay}"
-RELAY_URL="${RELAY_URL:-http://127.0.0.1:9000}"
-PORT="${OPENAI_API_PORT:-9000}"
-HOST="${OPENAI_API_HOST:-0.0.0.0}"
-AUTH_MODE="${AUTH_MODE:-existing}"
 
-# Load .env
+# Load .env before deriving defaults so values in the file actually take effect.
 if [[ -f "$REPO_DIR/.env" ]]; then
+  chmod go-rwx "$REPO_DIR/.env" 2>/dev/null || true
   set -a
+  # shellcheck disable=SC1091
   source "$REPO_DIR/.env"
   set +a
 fi
 
-# Prefer credentials if both email + password are present
-if [[ -n "${M365_EMAIL:-}" && -n "${M365_PASSWORD:-}" ]]; then
-  AUTH_MODE="credentials"
+RELAY_URL="${RELAY_URL:-http://127.0.0.1:9000}"
+OPENAI_API_PORT="${OPENAI_API_PORT:-9000}"
+OPENAI_API_HOST="${OPENAI_API_HOST:-0.0.0.0}"
+AUTH_MODE="${AUTH_MODE:-existing}"
+G365_REPO="${G365_RELAY_REPO:-$REPO_DIR/vendor/g365-headless-relay}"
+
+# Keep legacy sibling install path discoverable if it already exists.
+if [[ -z "${G365_RELAY_REPO:-}" && -d "$HOME/projects/g365-headless-relay" ]]; then
+  G365_REPO="$HOME/projects/g365-headless-relay"
 fi
 
-export RELAY_URL PORT HOST AUTH_MODE G365_RELAY_REPO
+G365_RELAY_REPO="$G365_REPO"
+MAX_CONCURRENCY="${MAX_CONCURRENCY:-10}"
+
+# Prefer credentials if both email + password are present. If credentials mode
+# was selected with blank credentials, fall back to VNC instead of failing later.
+if [[ -n "${M365_EMAIL:-}" && -n "${M365_PASSWORD:-}" ]]; then
+  AUTH_MODE="credentials"
+elif [[ "$AUTH_MODE" == "credentials" ]]; then
+  echo "[start] AUTH_MODE=credentials but M365_EMAIL/M365_PASSWORD are blank; using AUTH_MODE=vnc"
+  AUTH_MODE="vnc"
+fi
+
+export RELAY_URL AUTH_MODE G365_RELAY_REPO OPENAI_API_PORT OPENAI_API_HOST MAX_CONCURRENCY
+
+STARTED_RELAY=false
+cleanup() {
+  if [[ "$STARTED_RELAY" == "true" && -f "$REPO_DIR/logs/relay.pid" ]]; then
+    local pid
+    pid="$(cat "$REPO_DIR/logs/relay.pid" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "[start] Stopping relay PID $pid"
+      kill "$pid" 2>/dev/null || true
+    fi
+  fi
+}
+trap cleanup EXIT INT TERM
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║  M365 Copilot MCP Server — Startup                     ║"
+echo "║  M365 Copilot MCP Server — Startup                       ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -48,17 +76,19 @@ fi
 # Check if relay is already healthy
 RELAY_READY=false
 if command -v curl > /dev/null 2>&1; then
-  if curl -s "$RELAY_URL/health" > /dev/null 2>&1; then
+  if curl -fsS "$RELAY_URL/health" > /dev/null 2>&1; then
     RELAY_READY=true
   fi
 fi
 
 # Start relay if not already running
+mkdir -p "$REPO_DIR/logs" "$G365_REPO/logs"
 if [[ "$RELAY_READY" == "false" ]]; then
   echo "[start] Starting g365-headless-relay (auth mode: $AUTH_MODE)..."
   cd "$G365_REPO"
-  OPENAI_API_PORT="$PORT" OPENAI_API_HOST="$HOST" REQUEST_LOG="$G365_REPO/logs/requests.ndjson" MAX_CONCURRENCY="${MAX_CONCURRENCY:-10}" ./start.sh > "$REPO_DIR/logs/relay.log" 2>&1 &
+  REQUEST_LOG="$G365_REPO/logs/requests.ndjson" ./start.sh > "$REPO_DIR/logs/relay.log" 2>&1 &
   echo $! > "$REPO_DIR/logs/relay.pid"
+  STARTED_RELAY=true
   echo "[start] Relay started (PID $(cat "$REPO_DIR/logs/relay.pid"))"
 else
   echo "[start] Relay already running at $RELAY_URL"
@@ -66,15 +96,15 @@ fi
 
 # Wait for relay health
 echo "[start] Waiting for relay at $RELAY_URL ..."
-for i in $(seq 1 60); do
-  if curl -s "$RELAY_URL/health" > /dev/null 2>&1; then
+for _ in $(seq 1 60); do
+  if curl -fsS "$RELAY_URL/health" > /dev/null 2>&1; then
     echo "[start] Relay ready"
     break
   fi
   sleep 2
 done
 
-if ! curl -s "$RELAY_URL/health" > /dev/null 2>&1; then
+if ! curl -fsS "$RELAY_URL/health" > /dev/null 2>&1; then
   echo "[start] ERROR: relay did not become ready. Check $REPO_DIR/logs/relay.log"
   exit 1
 fi
@@ -84,6 +114,6 @@ echo "MCP server starting. Connect Hermes Agent with:"
 echo "  hermes mcp add m365-copilot --command \"$REPO_DIR/mcp-server.js\""
 echo ""
 
-# Run MCP server in foreground
+# Run MCP server in foreground so cleanup traps run when it exits.
 cd "$REPO_DIR"
-exec node mcp-server.js
+node mcp-server.js

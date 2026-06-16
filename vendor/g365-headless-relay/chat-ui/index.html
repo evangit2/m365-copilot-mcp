@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>G365 Copilot — GPT 5.5</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-dim: #1f6feb;
+      --success: #238636;
+      --warning: #d29922;
+      --error: #f85149;
+      --thinking: #a371f7;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      flex-shrink: 0;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--thinking));
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+      color: white;
+    }
+
+    .header-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .header-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: background 0.3s;
+    }
+
+    .status.connected .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status.connecting .status-dot { background: var(--warning); animation: pulse 1s infinite; }
+    .status.error .status-dot { background: var(--error); }
+    .status.streaming .status-dot { background: var(--accent); animation: pulse 0.5s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Main layout */
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* Messages area */
+    .messages-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 16px;
+      color: var(--text-muted);
+    }
+
+    .empty-state.hidden { display: none; }
+
+    .empty-icon {
+      font-size: 48px;
+      opacity: 0.3;
+    }
+
+    /* Message bubbles */
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 90%;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .message.bot {
+      align-self: flex-start;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .avatar.user {
+      background: var(--accent-dim);
+      color: white;
+    }
+
+    .avatar.bot {
+      background: linear-gradient(135deg, var(--accent), var(--thinking));
+      color: white;
+    }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      word-wrap: break-word;
+    }
+
+    .bubble.user {
+      background: var(--accent-dim);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.bot {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble.bot.streaming {
+      border-color: var(--accent);
+    }
+
+    /* Thinking indicator */
+    .thinking-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(163, 113, 247, 0.1);
+      border: 1px solid rgba(163, 113, 247, 0.3);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--thinking);
+    }
+
+    .thinking-bar.hidden { display: none; }
+
+    .thinking-dots {
+      display: flex;
+      gap: 3px;
+    }
+
+    .thinking-dots span {
+      width: 5px;
+      height: 5px;
+      background: var(--thinking);
+      border-radius: 50%;
+      animation: bounce 1.4s infinite ease-in-out both;
+    }
+
+    .thinking-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .thinking-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    /* Reasoning panel (collapsible) */
+    .reasoning-panel {
+      margin-bottom: 10px;
+      border: 1px solid rgba(163, 113, 247, 0.3);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    .reasoning-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(163, 113, 247, 0.12);
+      color: var(--thinking);
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    .reasoning-header:hover { background: rgba(163, 113, 247, 0.2); }
+
+    .reasoning-header .chevron {
+      transition: transform 0.2s;
+      width: 12px;
+      height: 12px;
+    }
+
+    .reasoning-panel.collapsed .chevron { transform: rotate(-90deg); }
+    .reasoning-panel.collapsed .reasoning-body { display: none; }
+
+    .reasoning-body {
+      padding: 10px 12px;
+      background: rgba(163, 113, 247, 0.04);
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.7;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .reasoning-body.streaming {
+      border-left: 2px solid var(--thinking);
+    }
+    .input-area {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+
+    .input-wrapper {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .input-box {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      resize: none;
+      min-height: 44px;
+      max-height: 200px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-box:focus { border-color: var(--accent); }
+    .input-box:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .send-btn {
+      width: 44px;
+      height: 44px;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .send-btn:hover:not(:disabled) { background: var(--accent-dim); }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .send-btn svg { width: 20px; height: 20px; pointer-events: none; }
+
+    .input-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* Markdown styling */
+    .bubble pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+
+    .bubble code {
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+    }
+
+    .bubble pre code { background: none; border: none; padding: 0; }
+
+    .bubble p { margin: 8px 0; }
+    .bubble p:first-child { margin-top: 0; }
+    .bubble p:last-child { margin-bottom: 0; }
+
+    .bubble ul, .bubble ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    .bubble li { margin: 4px 0; }
+
+    .bubble h1, .bubble h2, .bubble h3 {
+      margin: 12px 0 8px;
+      font-weight: 600;
+    }
+
+    .bubble h1 { font-size: 18px; }
+    .bubble h2 { font-size: 16px; }
+    .bubble h3 { font-size: 14px; }
+
+    .bubble a { color: var(--accent); }
+    .bubble strong { font-weight: 600; }
+    .bubble em { font-style: italic; }
+
+    /* Debug panel */
+    .debug-panel {
+      width: 320px;
+      border-left: 1px solid var(--border);
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .debug-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .debug-title { font-weight: 600; }
+
+    .debug-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+    }
+
+    .debug-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .debug-line {
+      padding: 2px 0;
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+
+    .debug-line.in { color: var(--success); }
+    .debug-line.out { color: var(--accent); }
+    .debug-line.err { color: var(--error); }
+    .debug-line.warn { color: var(--warning); }
+
+    .debug-actions {
+      padding: 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+
+    .debug-btn {
+      flex: 1;
+      padding: 6px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .debug-btn:hover { border-color: var(--accent); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* Error toast */
+    .toast {
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      padding: 12px 16px;
+      background: var(--error);
+      color: white;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      z-index: 100;
+      animation: slideIn 0.3s ease;
+      max-width: 300px;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Re-auth button */
+    .reauth-btn {
+      background: var(--error);
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 8px;
+    }
+    .reauth-btn:hover { background: #da3633; }
+    .reauth-btn.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">G</div>
+      <div>
+        <div class="header-title">G365 Copilot</div>
+        <div class="header-subtitle">GPT 5.5 Think Deeper</div>
+      </div>
+    </div>
+    <div class="status" id="status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Initializing...</span>
+    </div>
+    <button class="reauth-btn hidden" id="reauth-btn" title="Re-authenticate M365">🔐 Re-auth</button>
+  </div>
+
+  <div class="main">
+    <div class="messages-container">
+      <div class="messages" id="messages">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">🤖</div>
+          <div>Ready to chat with GPT 5.5 Think Deeper</div>
+          <div style="font-size: 12px;">Ask anything — reasoning, coding, analysis</div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea class="input-box" id="input" placeholder="Ask GPT 5.5 anything..." rows="1"></textarea>
+          <button class="send-btn" id="send-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          </button>
+        </div>
+        <div class="input-hint">Shift+Enter for new line · <span id="conn-info">...</span></div>
+      </div>
+    </div>
+
+    <div class="debug-panel" id="debug-panel">
+      <div class="debug-header">
+        <span class="debug-title">Debug Console</span>
+        <button class="debug-toggle" id="debug-toggle">Hide</button>
+      </div>
+      <div class="debug-body" id="debug-body"></div>
+      <div class="debug-actions">
+        <button class="debug-btn" id="btn-reconnect">Reconnect</button>
+        <button class="debug-btn" id="btn-clear">Clear Log</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const WS_URL = `ws://${window.location.hostname}:8765`;
+    const MAX_RECONNECT = 20;
+    const RECONNECT_DELAY = 2000;
+
+    // State
+    let ws = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
+    let isStreaming = false;
+    let isReady = false;          // <-- NEW: server confirmed ready
+    let currentBotMsg = null;
+    let currentBotText = '';
+    let currentReasoningText = '';  // <-- NEW: accumulate reasoning text
+    let currentReasoningPanel = null; // <-- NEW: reasoning DOM ref
+    let messageQueue = [];
+    let debugLines = [];
+    let hasReceivedDelta = false; // Track if we got deltas before message
+
+    // DOM refs
+    const els = {
+      messages: document.getElementById('messages'),
+      emptyState: document.getElementById('empty-state'),
+      input: document.getElementById('input'),
+      sendBtn: document.getElementById('send-btn'),
+      status: document.getElementById('status'),
+      statusText: document.getElementById('status-text'),
+      statusDot: document.getElementById('status-dot'),
+      connInfo: document.getElementById('conn-info'),
+      debugBody: document.getElementById('debug-body'),
+      debugToggle: document.getElementById('debug-toggle'),
+      debugPanel: document.getElementById('debug-panel'),
+      btnReconnect: document.getElementById('btn-reconnect'),
+      btnClear: document.getElementById('btn-clear'),
+      reauthBtn: document.getElementById('reauth-btn'),
+    };
+
+    // Debug logging
+    function debug(msg, type = '') {
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const line = `[${time}] ${msg}`;
+      console.log(line);
+      
+      const div = document.createElement('div');
+      div.className = 'debug-line' + (type ? ' ' + type : '');
+      div.textContent = line;
+      els.debugBody.appendChild(div);
+      els.debugBody.scrollTop = els.debugBody.scrollHeight;
+      
+      // Keep only last 100 lines
+      while (els.debugBody.children.length > 100) {
+        els.debugBody.removeChild(els.debugBody.firstChild);
+      }
+    }
+
+    function setStatus(state, text) {
+      els.status.className = 'status ' + state;
+      els.statusText.textContent = text;
+      els.connInfo.textContent = ws ? `WS state: ${ws.readyState} | Reconnects: ${reconnectAttempts}` : 'WS: null';
+      debug(`Status: ${state} — ${text}`, state === 'error' ? 'err' : 'out');
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.textContent = msg;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+    }
+
+    // Markdown renderer
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function renderMarkdown(text) {
+      let html = escapeHtml(text);
+      html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => `<pre><code>${escapeHtml(code.trim())}</code></pre>`);
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+      html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+      html = html.replace(/<\/ul>\s*<ul>/g, '');
+      html = html.replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+      const paragraphs = html.split(/\n\n+/);
+      html = paragraphs.map(p => {
+        p = p.trim();
+        if (!p) return '';
+        if (p.startsWith('<') && (p.startsWith('<h') || p.startsWith('<pre') || p.startsWith('<ul') || p.startsWith('<li'))) return p;
+        return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+      }).join('\n');
+      return html;
+    }
+
+    // Message UI
+    function addUserMessage(text) {
+      els.emptyState.classList.add('hidden');
+      const msg = document.createElement('div');
+      msg.className = 'message user';
+      msg.innerHTML = `<div class="avatar user">You</div><div class="bubble user">${escapeHtml(text).replace(/\n/g, '<br>')}</div>`;
+      els.messages.appendChild(msg);
+      scrollToBottom();
+    }
+
+    function startBotMessage() {
+      els.emptyState.classList.add('hidden');
+      currentReasoningText = '';
+      currentReasoningPanel = null;
+
+      const msg = document.createElement('div');
+      msg.className = 'message bot';
+      msg.innerHTML = `
+        <div class="avatar bot">AI</div>
+        <div style="flex:1; min-width:0;">
+          <div class="reasoning-panel collapsed" id="reasoning-${Date.now()}">
+            <div class="reasoning-header" onclick="this.closest('.reasoning-panel').classList.toggle('collapsed')">
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <div class="thinking-dots"><span></span><span></span><span></span></div>
+              <span>Thinking...</span>
+            </div>
+            <div class="reasoning-body streaming"></div>
+          </div>
+          <div class="bubble bot streaming"></div>
+        </div>
+      `;
+      els.messages.appendChild(msg);
+      currentBotMsg = msg;
+      currentBotText = '';
+      scrollToBottom();
+
+      // Save ref to reasoning body
+      const panel = msg.querySelector('.reasoning-panel');
+      if (panel) currentReasoningPanel = panel.querySelector('.reasoning-body');
+      return msg;
+    }
+
+    function appendBotDelta(delta) {
+      if (!currentBotMsg) startBotMessage();
+      currentBotText += delta;
+      const bubble = currentBotMsg.querySelector('.bubble');
+      bubble.innerHTML = renderMarkdown(currentBotText);
+      scrollToBottom();
+    }
+
+    function finishBotMessage() {
+      if (!currentBotMsg) return;
+      currentBotMsg.classList.remove('streaming');
+      const bubble = currentBotMsg.querySelector('.bubble');
+      if (bubble) bubble.classList.remove('streaming');
+      // Clean up reasoning panel
+      if (currentReasoningPanel) {
+        currentReasoningPanel.classList.remove('streaming');
+        const panel = currentReasoningPanel.closest('.reasoning-panel');
+        if (panel) {
+          const header = panel.querySelector('.reasoning-header');
+          if (header) {
+            const dots = header.querySelector('.thinking-dots');
+            if (dots) dots.remove();
+          }
+        }
+      }
+      currentBotMsg = null;
+      currentBotText = '';
+      currentReasoningText = '';
+      currentReasoningPanel = null;
+      isStreaming = false;
+      hasReceivedDelta = false; // Reset for next message
+      setStatus('connected', 'Connected');
+    }
+
+    function scrollToBottom() {
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
+    // WebSocket
+    function connect() {
+      if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) {
+        debug('Already connected/connecting, skipping', 'warn');
+        return;
+      }
+
+      setStatus('connecting', 'Connecting...');
+      debug(`Connecting to ${WS_URL}`);
+
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+      try {
+        ws = new WebSocket(WS_URL);
+      } catch (e) {
+        debug(`WS constructor error: ${e.message}`, 'err');
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = () => {
+        debug('WS OPEN', 'in');
+        setStatus('connecting', 'Handshaking...');
+        reconnectAttempts = 0;
+        isReady = false; // reset until server confirms
+
+        // Keepalive ping
+        if (window._wsPingTimer) clearInterval(window._wsPingTimer);
+        window._wsPingTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            debug('Sending ping');
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 2500);
+
+        // Request GPT 5.5 Think Deeper
+        debug('Sending new + model request');
+        ws.send(JSON.stringify({ type: 'new', model: 'gpt-5.5-think-deeper' }));
+      };
+
+      ws.onmessage = (evt) => {
+        let msg;
+        try {
+          msg = JSON.parse(evt.data);
+        } catch (e) {
+          debug(`Parse error: ${e.message}`, 'err');
+          return;
+        }
+
+        debug(`RX: ${msg.type}${msg.text ? ' len=' + msg.text.length : ''}${msg.model ? ' model=' + msg.model : ''}`, 'in');
+
+        switch (msg.type) {
+          case 'ready':
+            setStatus('connected', 'Connected');
+            els.input.disabled = false;
+            els.sendBtn.disabled = false;
+            els.input.placeholder = 'Ask GPT 5.5 anything...';
+            isReady = true; // <-- NOW we're truly ready
+            // Flush queued messages
+            while (messageQueue.length > 0) {
+              const queued = messageQueue.shift();
+              ws.send(JSON.stringify({ type: 'chat', text: queued }));
+              debug(`Flushed queued: ${queued.substring(0, 40)}...`);
+            }
+            break;
+
+          case 'sent':
+            isStreaming = false;
+            hasReceivedDelta = false;
+            startBotMessage();
+            setStatus('streaming', 'Reasoning...');
+            break;
+
+          case 'reasoning_delta':
+            if (!currentBotMsg) startBotMessage();
+            if (currentReasoningPanel) {
+              currentReasoningText += (msg.text || '');
+              currentReasoningPanel.textContent = currentReasoningText;
+              currentReasoningPanel.scrollTop = currentReasoningPanel.scrollHeight;
+              // Auto-expand if first reasoning content
+              const panel = currentReasoningPanel.closest('.reasoning-panel');
+              if (panel && panel.classList.contains('collapsed') && currentReasoningText.length > 20) {
+                panel.classList.remove('collapsed');
+              }
+            }
+            break;
+
+          case 'reasoning_done':
+            if (currentReasoningPanel) {
+              currentReasoningPanel.classList.remove('streaming');
+              // Update header to show it's done
+              const panel = currentReasoningPanel.closest('.reasoning-panel');
+              if (panel) {
+                const header = panel.querySelector('.reasoning-header');
+                if (header) {
+                  header.innerHTML = header.innerHTML.replace('Thinking...', 'Reasoning Complete');
+                }
+              }
+            }
+            break;
+
+          case 'delta':
+            hasReceivedDelta = true;
+            if (!currentBotMsg) startBotMessage();
+            appendBotDelta(msg.text || '');
+            break;
+
+          case 'message':
+            // If we already streamed deltas, ignore the duplicate full message
+            if (hasReceivedDelta) {
+              debug('Skipping duplicate full message (already streamed)', 'warn');
+              break;
+            }
+            if (!currentBotMsg) startBotMessage();
+            appendBotDelta(msg.text || '');
+            break;
+
+          case 'done':
+            finishBotMessage();
+            break;
+
+          case 'error':
+            debug(`Error: ${msg.message}${msg.code ? ' (' + msg.code + ')' : ''}`, 'err');
+            if (msg.code === 'AUTH_REQUIRED' || msg.code === 'TIMEOUT') {
+              setStatus('error', msg.code === 'AUTH_REQUIRED' ? 'Auth Required' : 'Session Expired');
+              els.input.placeholder = 'Sign in to M365 required...';
+              els.input.disabled = true;
+              els.sendBtn.disabled = true;
+              if (els.reauthBtn) els.reauthBtn.classList.remove('hidden');
+              showToast('M365 sign-in required. Click 🔐 Re-auth to authenticate.');
+            } else {
+              showToast(msg.message);
+            }
+            break;
+
+          case 'pong':
+            break;
+
+          default:
+            debug(`Unknown type: ${msg.type}`, 'warn');
+        }
+      };
+
+      ws.onclose = (evt) => {
+        debug(`WS CLOSE code=${evt.code} reason="${evt.reason || 'none'}" wasClean=${evt.wasClean}`, evt.code === 1000 ? 'out' : 'err');
+        if (window._wsPingTimer) { clearInterval(window._wsPingTimer); window._wsPingTimer = null; }
+        isReady = false; // <-- reset ready state
+        setStatus('error', `Disconnected (${evt.code})`);
+        els.input.disabled = true;
+        els.sendBtn.disabled = true;
+        els.input.placeholder = 'Reconnecting...';
+        finishBotMessage();
+        ws = null;
+        scheduleReconnect();
+      };
+
+      ws.onerror = (err) => {
+        debug(`WS ERROR: ${err.message || err.type || 'unknown'}`, 'err');
+        setStatus('error', 'Connection Error');
+      };
+    }
+
+    function scheduleReconnect() {
+      if (reconnectAttempts < MAX_RECONNECT) {
+        reconnectAttempts++;
+        const delay = Math.min(RECONNECT_DELAY * reconnectAttempts, 15000);
+        debug(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT})`, 'warn');
+        reconnectTimer = setTimeout(connect, delay);
+      } else {
+        debug('Max reconnects reached', 'err');
+        showToast('Connection lost. Please refresh the page.');
+      }
+    }
+
+    function sendMessage() {
+      const text = els.input.value.trim();
+      if (!text) return;
+
+      addUserMessage(text);
+      els.input.value = '';
+      els.input.style.height = 'auto';
+      isStreaming = false;
+
+      if (ws?.readyState === WebSocket.OPEN && isReady) {
+        debug(`TX: chat "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`);
+        ws.send(JSON.stringify({ type: 'chat', text }));
+      } else {
+        debug('WS not ready, queuing message', 'warn');
+        messageQueue.push(text);
+        showToast('Message queued — waiting for connection');
+      }
+    }
+
+    // Events
+    els.sendBtn.addEventListener('click', sendMessage);
+    els.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    els.input.addEventListener('input', () => {
+      els.input.style.height = 'auto';
+      els.input.style.height = Math.min(els.input.scrollHeight, 200) + 'px';
+    });
+
+    els.btnReconnect.addEventListener('click', () => {
+      debug('Manual reconnect clicked');
+      reconnectAttempts = 0;
+      isReady = false;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (ws) { try { ws.close(); } catch(e) {} }
+      ws = null;
+      connect();
+    });
+
+    // Re-auth button handler
+    if (els.reauthBtn) {
+      els.reauthBtn.addEventListener('click', () => {
+        debug('Re-auth button clicked — opening /reauth');
+        window.open('/reauth', '_blank', 'width=640,height=600,popup=yes');
+      });
+
+      // Listen for auth-check message from reauth popup
+      window.addEventListener('message', (e) => {
+        if (e.data === 'auth-check' || e.data === 'auth-done') {
+          debug('Auth check triggered from popup');
+          showToast('Auth may be ready — reconnecting...');
+          reconnectAttempts = 0;
+          if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+          if (ws) { try { ws.close(); } catch(e) {} }
+          ws = null;
+          connect();
+          if (els.reauthBtn) els.reauthBtn.classList.add('hidden');
+        }
+      });
+    }
+
+    els.btnClear.addEventListener('click', () => {
+      els.debugBody.innerHTML = '';
+      debug('Log cleared');
+    });
+
+    let debugVisible = true;
+    els.debugToggle.addEventListener('click', () => {
+      debugVisible = !debugVisible;
+      els.debugPanel.style.display = debugVisible ? 'flex' : 'none';
+      els.debugToggle.textContent = debugVisible ? 'Hide' : 'Show';
+    });
+
+    // Start
+    debug('Page loaded, initiating connection...');
+    connect();
+  </script>
+</body>
+</html>

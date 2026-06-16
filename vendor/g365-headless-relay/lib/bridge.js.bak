@@ -1,0 +1,460 @@
+(function () {
+  'use strict';
+
+  var SIGNALR_SEP = '\x1e';
+  var _pending = [];
+  var _wsUrlTemplate = null;
+  var _modelTone = 'Gpt_5_5_Reasoning'; // Default: GPT 5.5 Think Deeper
+  var _currentConvId = null;
+  var _currentSessionId = null;
+  var _currentWs = null;
+  var _lastBotMessage = '';
+  var _messageIndex = 0;
+  var _isStreaming = false;
+
+  // ── Reasoning state ─────────────────────────────────────────
+  var _reasoningBuffer = '';
+  var _finalBuffer = '';
+  var _hasEmittedReasoning = false;
+  var _reasoningDone = false;
+
+  var VARIANTS = [
+    'EnableMcpServerWidgets','feature.EnableMcpServerWidgets','feature.EnableLuForChatCIQ',
+    'feature.enableChatCIQPlugin','EnableRequestPlugins','feature.EnableSensitivityLabels',
+    'EnableUnsupportedUrlDetector','feature.IsCustomEngineCopilotEnabled','feature.bizchatfluxv3',
+    'feature.enablechatpages','feature.enableCodeCanvas','feature.turnOnWorkTabRecommendation',
+    'feature.turnOnDARecommendation','feature.IsStreamingModeInChatRequestEnabled',
+    'IncludeSourceAttributionsConcise','SkipPublishEmptyMessage',
+    'feature.EnableDeduplicatingSourceAttributions','Enable3PActionProgressMessages',
+    'feature.enableClientWebRtc','feature.EnableMeetingRecapOfSeriesMeetingWithCiq',
+    'feature.EnableReferencesListCompleteSignal','feature.StorageMessageSplitDisabled',
+    'feature.EnableCuaTakeControlApi','SingletonEnvOn','feature.cwcallowedos',
+    'feature.EnableMergingPureDeltas','feature.disabledisallowedmsgs',
+    'feature.enableCitationsForSynthesisData','feature.EnableConversationShareApis',
+    'feature.enableGenerateGraphicArtOptionsSet','cdximagen',
+    'feature.EnableUpdatedUXForConfirmationDialog','feature.EnableContentApiandDocTypeHtmlInRichAnswers',
+    'cdxgrounding_api_v2_rich_web_answers_reference_bottom_force','cdxenablerenderforisocomp',
+    'feature.EnableClientFileURLSupportForOfficeWebPaidCopilot','feature.EnableDesignerEditorImageGrounding',
+    'feature.EnableDesignerEditor','feature.EnableSkipRehydrationForSpeCIdImages',
+    'feature.EnableSkipEmittingMessageOnFlush','feature.EnableRemoveEmptySourceAttributions',
+    'feature.EnableRemoveStreamingMode','feature.OfficeWebToHelix','feature.OfficeDesktopToHelix',
+    'feature.M365TeamsHubToHelix','feature.OwaHubToHelix','feature.MonarchHubToHelix',
+    'feature.Win32OutlookHubToHelix','feature.MacOutlookHubToHelix','Agt_bizchat_enableGpt5ForHelix',
+  ];
+
+  var OPTIONS_SETS = [
+    'at_mention_plugins_enable','enable_confirmation_interstitial','enable_plugin_auth_interstitial',
+    'enable_request_response_interstitials','enable_response_action_processing',
+    'enterprise_flux_image','enterprise_flux_web','enterprise_flux_work',
+    'enterprise_toolbox_with_skdsstore','enterprise_pagination_support',
+    'search_result_progress_messages_with_search_queries',
+    'flux_v3_gptv_enable_upload_multi_image_in_turn_wo_ch','gptvnorm2048',
+    'enterprise_flux_work_code_interpreter','cwc_code_interpreter_citation_fix',
+    'code_interpreter_interactive_charts','enterprise_code_interpreter_citation_fix',
+    'cwc_code_interpreter_interactive_charts_inline_image','code_interpreter_matplotlib_patching',
+    'enable_batch_token_processing','disable_cea_message_listener','enable_selective_url_redaction',
+    'update_memory_plugin','add_custom_instructions','agent_recommendations','enable_gg_gpt',
+    'enable_inferred_memory_read','flux_v3_image_gen_enable_dimensions',
+    'flux_v3_image_gen_enable_icon_dimensions','flux_v3_image_gen_enable_system_text_with_params',
+    'flux_v3_image_gen_enable_designer_dimensions_meta_prompting_in_system_prompts',
+  ];
+
+  var ALLOWED_MESSAGE_TYPES = [
+    'Chat','Suggestion','InternalSearchQuery','Disengaged','InternalLoaderMessage',
+    'Progress','GeneratedCode','RenderCardRequest','AdsQuery','SemanticSerp',
+    'GenerateContentQuery','GenerateGraphicArt','SearchQuery','ConfirmationCard',
+    'AuthError','DeveloperLogs','TriggerPlugin','HintInvocation','MemoryUpdate',
+    'EndOfRequest','TriggerConfirmation','ResumeInvokeAction','ResumeUserInputRequest',
+    'TriggerUserInputRequest','EscapeHatch','TriggerPluginAuth','ResumePluginAuth',
+    'SideBySide','ReferencesListComplete','SwitchRespondingEndpoint',
+  ];
+
+  function uuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+      var r=Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16);
+    });
+  }
+
+  // Intercept WebSocket constructor to capture substrate URL template
+  var _OrigWS = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    var u = String(url || '');
+    if (u.indexOf('substrate.office.com') !== -1 && u.indexOf('access_token=') !== -1) {
+      _wsUrlTemplate = u;
+    }
+    return new _OrigWS(url, protocols);
+  };
+  window.WebSocket.prototype = _OrigWS.prototype;
+  window.WebSocket.CONNECTING = _OrigWS.CONNECTING;
+  window.WebSocket.OPEN = _OrigWS.OPEN;
+  window.WebSocket.CLOSING = _OrigWS.CLOSING;
+  window.WebSocket.CLOSED = _OrigWS.CLOSED;
+
+  function buildWsUrl(convId, sessionId, reqId) {
+    if (!_wsUrlTemplate) return null;
+    try {
+      var u = new URL(_wsUrlTemplate);
+      u.searchParams.set('ClientRequestId', reqId);
+      u.searchParams.set('X-SessionId', sessionId);
+      u.searchParams.set('ConversationId', convId);
+      return u.toString();
+    } catch (e) {
+      return _wsUrlTemplate
+        .replace(/ClientRequestId=[^&]+/, 'ClientRequestId=' + reqId)
+        .replace(/X-SessionId=[^&]+/, 'X-SessionId=' + sessionId)
+        .replace(/ConversationId=[^&]+/, 'ConversationId=' + convId);
+    }
+  }
+
+  function buildChatInvoke(text, convId, sessionId, reqId, isStartOfSession) {
+    return JSON.stringify({
+      arguments: [{
+        source: 'officeweb', clientCorrelationId: reqId,
+        sessionId: sessionId, optionsSets: OPTIONS_SETS,
+        streamingMode: 'ConciseWithPadding', spokenTextMode: 'None',
+        options: {}, extraExtensionParameters: {},
+        allowedMessageTypes: ALLOWED_MESSAGE_TYPES,
+        sliceIds: [], threadLevelGptId: {},
+        traceId: reqId, isStartOfSession: !!isStartOfSession,
+        clientInfo: {
+          clientPlatform: 'mcmcopilot-web', clientAppName: 'Office',
+          clientEntrypoint: 'mcmcopilot-officeweb', clientSessionId: sessionId,
+          clientAppType: 'Web', deviceOS: 'Windows', deviceType: 'Desktop',
+          ProductCategory: 'Chat', productEntryPoint: 'ChatPanel',
+        },
+        message: {
+          author: 'user', inputMethod: 'Keyboard', text: text,
+          entityAnnotationTypes: ['People','File','Event','Email','TeamsMessage'],
+          requestId: reqId,
+          locationInfo: { timeZoneOffset: 0, timeZone: 'UTC' },
+          locale: 'en-us', messageType: 'Chat', experienceType: 'Default',
+          adaptiveCards: [], clientPreferences: {},
+        },
+        plugins: [{ Id: 'BingWebSearch', Source: 'BuiltIn' }],
+        isSbsSupported: true,
+        tone: _modelTone,
+        renderReferencesBehindEOS: true,
+      }],
+      invocationId: '0', target: 'chat', type: 4,
+    }) + SIGNALR_SEP;
+  }
+
+  // ── Reasoning helpers ──────────────────────────────────────
+  function stripThinkingTags(text) {
+    // Strip <antml:thinking>, </antml:thinking>, <thinking>, </thinking> tags
+    return text
+      .replace(/<antml:thinking>/gi, '')
+      .replace(/<\/antml:thinking>/gi, '')
+      .replace(/<thinking>/gi, '')
+      .replace(/<\/thinking>/gi, '');
+  }
+
+  function extractThinkingBlocks(text) {
+    // Extract content between thinking tags
+    var blocks = [];
+    var re = /<(antml:)?thinking>\s*([\s\S]*?)\s*<\/(antml:)?thinking>/gi;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      blocks.push(m[2].trim());
+    }
+    return blocks;
+  }
+
+  function containsThinkingTags(text) {
+    return /<(\/?)(antml:)?thinking>/i.test(text);
+  }
+
+  function isReasoningMessage(updateData) {
+    // Check various signals that this is reasoning/thinking content
+    if (!updateData) return false;
+    var msgType = updateData.messageType || '';
+    if (msgType === 'InternalLoaderMessage' || msgType === 'Progress' || msgType === 'Thinking') {
+      return true;
+    }
+    if (updateData.thinking || updateData.thoughts || updateData.reasoning) {
+      return true;
+    }
+    if (updateData.text && containsThinkingTags(updateData.text)) {
+      return true;
+    }
+    return false;
+  }
+
+  function getReasoningText(updateData, rawDelta) {
+    // Extract reasoning text from various possible fields
+    if (updateData.thinking) return String(updateData.thinking);
+    if (updateData.thoughts) return String(updateData.thoughts);
+    if (updateData.reasoning) return String(updateData.reasoning);
+    if (rawDelta) {
+      var blocks = extractThinkingBlocks(rawDelta);
+      if (blocks.length > 0) return blocks.join('\n');
+    }
+    if (updateData.text) {
+      // If it's a progress/loader message, use the text directly
+      var msgType = updateData.messageType || '';
+      if (msgType === 'InternalLoaderMessage' || msgType === 'Progress') {
+        return String(updateData.text);
+      }
+    }
+    return '';
+  }
+
+  function computeDelta(oldText, newText) {
+    // Compute the delta between old and new text
+    if (!oldText) return newText;
+    if (newText.indexOf(oldText) === 0) {
+      return newText.substring(oldText.length);
+    }
+    if (oldText.indexOf(newText) === 0) {
+      return ''; // Retraction
+    }
+    // Longest common prefix fallback
+    var commonLen = 0;
+    var minLen = Math.min(newText.length, oldText.length);
+    for (var ci = 0; ci < minLen; ci++) {
+      if (newText[ci] === oldText[ci]) commonLen++;
+      else break;
+    }
+    if (commonLen > 0) {
+      return newText.substring(commonLen);
+    }
+    return newText; // No common prefix, emit whole thing
+  }
+
+  window.__m365Send = function(text, options) {
+    options = options || {};
+    if (!_wsUrlTemplate) {
+      _pending.push({ type: 'error', message: 'Not authenticated. Sign in to M365 first.' });
+      return;
+    }
+
+    // Use existing conversation if not starting fresh
+    var convId = options.newConversation ? uuid() : (_currentConvId || uuid());
+    var sessionId = _currentSessionId || uuid();
+    var reqId = uuid();
+    var isStartOfSession = !_currentConvId || options.newConversation;
+
+    _currentConvId = convId;
+    _currentSessionId = sessionId;
+    _lastBotMessage = '';
+    _messageIndex = 0;
+    _isStreaming = true;
+
+    // Reset reasoning state
+    _reasoningBuffer = '';
+    _finalBuffer = '';
+    _hasEmittedReasoning = false;
+    _reasoningDone = false;
+
+    // Close existing WS if any
+    if (_currentWs && _currentWs.readyState === 1) {
+      try { _currentWs.close(); } catch(e) {}
+    }
+
+    var url = buildWsUrl(convId, sessionId, reqId);
+    if (!url) return;
+
+    var ws = new _OrigWS(url);
+    _currentWs = ws;
+    var handshakeDone = false;
+    var accumulatedText = '';
+    var emittedDelta = false; // Track if we actually emitted any deltas
+
+    ws.onopen = function() {
+      ws.send(JSON.stringify({ protocol: 'json', version: 1 }) + SIGNALR_SEP);
+    };
+
+    ws.onmessage = function(evt) {
+      var raw = evt.data || '';
+      var parts = raw.split(SIGNALR_SEP);
+      for (var i = 0; i < parts.length; i++) {
+        var part = parts[i].trim();
+        if (!part) continue;
+
+        if (!handshakeDone) {
+          handshakeDone = true;
+          ws.send(buildChatInvoke(text, convId, sessionId, reqId, isStartOfSession));
+          _pending.push({ type: 'sent', conversationId: convId });
+          continue;
+        }
+
+        var msg;
+        try { msg = JSON.parse(part); } catch (e) { continue; }
+
+        var t = msg.type;
+        if (t === 6) continue; // ping
+
+        // ── Streaming delta (type:1 target:update) ────────────
+        if (t === 1 && msg.target === 'update') {
+          try {
+            var args = msg.arguments;
+            if (args && args.length > 0) {
+              var updateData = args[0];
+              if (updateData && updateData.text) {
+                var rawDelta = updateData.text;
+                var isReasoning = isReasoningMessage(updateData);
+
+                if (isReasoning && !_reasoningDone) {
+                  // Extract reasoning text
+                  var reasoningText = getReasoningText(updateData, rawDelta);
+                  if (reasoningText) {
+                    // Clean up tags
+                    var cleanReasoning = stripThinkingTags(reasoningText);
+                    var reasoningDelta = computeDelta(_reasoningBuffer, cleanReasoning);
+                    if (reasoningDelta) {
+                      _reasoningBuffer = cleanReasoning;
+                      _hasEmittedReasoning = true;
+                      _pending.push({
+                        type: 'reasoning_delta',
+                        text: reasoningDelta,
+                        conversationId: convId,
+                      });
+                    }
+                  }
+                } else {
+                  // Final answer text
+                  var newText = computeDelta(accumulatedText, rawDelta);
+                  if (newText) {
+                    accumulatedText = rawDelta;
+                    emittedDelta = true;
+                    _pending.push({
+                      type: 'delta',
+                      text: newText,
+                      conversationId: convId,
+                    });
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        // ── Full message (type:2) ─────────────────────────────
+        if (t === 2) {
+          var ims = (msg.item || {}).messages || [];
+          var foundBot = false;
+          for (var k = ims.length - 1; k >= 0; k--) {
+            if (ims[k].author !== 'user' && ims[k].text) {
+              var fullText = ims[k].text;
+
+              // Check if full message contains reasoning
+              if (containsThinkingTags(fullText) && !_reasoningDone) {
+                var reasoningBlocks = extractThinkingBlocks(fullText);
+                if (reasoningBlocks.length > 0) {
+                  var fullReasoning = reasoningBlocks.join('\n');
+                  if (fullReasoning.length > _reasoningBuffer.length) {
+                    var reasoningDelta = fullReasoning.substring(_reasoningBuffer.length);
+                    _reasoningBuffer = fullReasoning;
+                    _hasEmittedReasoning = true;
+                    _pending.push({
+                      type: 'reasoning_delta',
+                      text: reasoningDelta,
+                      conversationId: msg.item.conversationId || convId,
+                    });
+                  }
+                }
+                // Strip reasoning from final text
+                var cleanFinal = stripThinkingTags(fullText).trim();
+                if (cleanFinal && !emittedDelta) {
+                  _pending.push({
+                    type: 'message',
+                    text: cleanFinal,
+                    conversationId: msg.item.conversationId || convId,
+                    turnState: msg.item.turnState,
+                  });
+                  accumulatedText = cleanFinal;
+                  emittedDelta = true;
+                }
+              } else {
+                // No reasoning tags - standard handling
+                if (fullText.length > accumulatedText.length || fullText !== accumulatedText) {
+                  var remaining = computeDelta(accumulatedText, fullText);
+                  if (remaining) {
+                    _pending.push({
+                      type: 'delta',
+                      text: remaining,
+                      conversationId: msg.item.conversationId || convId,
+                    });
+                    accumulatedText = fullText;
+                    emittedDelta = true;
+                  }
+                }
+                // Only send 'message' event if we didn't emit any deltas
+                if (!emittedDelta) {
+                  _pending.push({
+                    type: 'message',
+                    text: fullText,
+                    conversationId: msg.item.conversationId || convId,
+                    turnState: msg.item.turnState,
+                  });
+                  accumulatedText = fullText;
+                }
+              }
+              foundBot = true;
+              break;
+            }
+          }
+        }
+
+        // ── Completion (type:3) ────────────────────────────────
+        if (t === 3) {
+          _isStreaming = false;
+          // Emit reasoning_done if we had reasoning
+          if (_hasEmittedReasoning && !_reasoningDone) {
+            _reasoningDone = true;
+            _pending.push({ type: 'reasoning_done', conversationId: convId });
+          }
+          _pending.push({ type: 'done', conversationId: convId });
+          if (ws.readyState === 1) ws.close();
+        }
+      }
+    };
+
+    ws.onerror = function(err) {
+      _isStreaming = false;
+      _pending.push({ type: 'error', message: 'Substrate connection error', conversationId: convId });
+    };
+
+    ws.onclose = function() {
+      _isStreaming = false;
+    };
+  };
+
+  window.__m365Poll = function() {
+    if (!_pending.length) return [];
+    var batch = _pending.slice();
+    _pending = [];
+    return batch;
+  };
+
+  window.__m365Ready = function() {
+    return !!_wsUrlTemplate;
+  };
+
+  window.__m365SetModel = function(model) {
+    if (model === 'gpt-5.5-think-deeper') _modelTone = 'Gpt_5_5_Reasoning';
+    else if (model === 'gpt-5.5-quick') _modelTone = 'Gpt_5_5_Chat';
+    else _modelTone = 'Gpt_5_5_Reasoning'; // Default to reasoning
+  };
+
+  window.__m365GetModel = function() {
+    return _modelTone === 'Gpt_5_5_Reasoning' ? 'gpt-5.5-think-deeper' : 'gpt-5.5-quick';
+  };
+
+  window.__m365ClearConversation = function() {
+    _currentConvId = null;
+    _currentSessionId = null;
+    _reasoningBuffer = '';
+    _finalBuffer = '';
+    _hasEmittedReasoning = false;
+    _reasoningDone = false;
+    if (_currentWs && _currentWs.readyState === 1) {
+      try { _currentWs.close(); } catch(e) {}
+    }
+    _currentWs = null;
+  };
+
+  window.__m365IsStreaming = function() {
+    return _isStreaming;
+  };
+})();
