@@ -56,25 +56,30 @@ hermes memory add "Low-capacity Hermes models must delegate all non-trivial codi
 git clone https://github.com/evangit2/m365-copilot-mcp.git ~/projects/m365-copilot-mcp
 cd ~/projects/m365-copilot-mcp
 
-# 2. Install dependencies for both the wrapper and the bundled relay
+# 2. Install dependencies for both the wrapper and the bundled relay,
+#    and symlink the Hermes native plugin into place.
 ./install.sh
+
+# (Optional) start the native HTTP tools server immediately so it's warm.
+# Otherwise the Hermes plugin will start it automatically on first use.
+INSTALL_START_TOOLS_SERVER=true ./install.sh
 
 # 3. Configure credentials or VNC sign-in
 nano .env
 
 # 4. Start the relay (credentials mode needs M365_EMAIL / M365_PASSWORD)
 ./start.sh
-
-# 5. Start the native Hermes HTTP tools server (kept alive in background)
-node tools-server.js &
 ```
 
-The native Hermes plugin is auto-loaded from `~/.hermes/hermes-agent/plugins/m365_copilot_native`, which is symlinked to `hermes-plugin/` in this repo. If the symlink is missing, create it:
+The native Hermes plugin is auto-loaded from `~/.hermes/hermes-agent/plugins/m365_copilot_native`, which is symlinked to `hermes-plugin/` in this repo.
+
+To remove the toolset and stop background processes:
 
 ```bash
-ln -s ~/projects/m365-copilot-mcp/hermes-plugin \
-  ~/.hermes/hermes-agent/plugins/m365_copilot_native
+./uninstall.sh
 ```
+
+`uninstall.sh` stops the tools server and relay, removes the Hermes plugin symlink, and disables the legacy MCP entry in Hermes config. It does **not** delete the repo or the relay profile; delete those manually if you want a full wipe.
 
 ---
 
