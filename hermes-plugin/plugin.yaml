@@ -1,0 +1,5 @@
+name: m365_copilot_native
+kind: backend
+version: 1.0.0
+description: Native Hermes tools for Microsoft 365 Copilot via the bundled m365-copilot-mcp HTTP tools server.
+enabled: true

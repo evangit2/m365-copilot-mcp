@@ -11,14 +11,18 @@ Thumbs.db
 profile/
 profile-*/
 screenshots/
-# Relay lives inside this project so the whole stack is self-contained.
-# Keep relay source committed but ignore its runtime artifacts.
-relay/node_modules/
-relay/**/*.log
-relay/profile/
-relay/profile-*/
-relay/.env
-relay/logs/
-relay/**/*.pid
-relay/screenshots/
 
+# Hermes native plugin is symlinked from hermes-plugin/ into
+# ~/.hermes/hermes-agent/plugins/m365_copilot_native. Source of truth is the
+# hermes-plugin/ directory in this repo; ignore any local symlink copies.
+
+# Relay lives inside this project so the whole stack is self-contained.
+# Keep relay source committed but ignore runtime artifacts.
+relay/node_modules/
+relay/profile*/
+relay/logs/
+relay/screenshots/
+relay/.cache/
+relay/**/*.pid
+relay/**/*.log
+relay/**/.env
