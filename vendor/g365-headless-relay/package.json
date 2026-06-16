@@ -1,0 +1,15 @@
+{
+  "name": "g365-headless-relay",
+  "version": "2.0.0",
+  "description": "Headless Chromium → M365 Copilot WebSocket relay with persistent conversations",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "postinstall": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.43.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  }
+}

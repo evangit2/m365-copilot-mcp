@@ -12,7 +12,7 @@ Use it when your agent hits a genuinely hard coding problem: complex architectur
 
 - `m365_copilot_chat` — ask GPT 5.5 Think Deeper a hard coding question
 - `m365_copilot_suggest_edit` — give it a file and instructions, get back an exact replacement
-- `m365_copilot_status` — check whether the relay is signed in and ready
+- `m365_copilot_status` — check whether the relay is signed in and ready; pass `deep_check: true` to verify that the captured Copilot/Substrate token can actually answer a tiny chat request
 - `m365_copilot_history` — list recent Copilot conversations (experimental)
 - `m365_copilot_reset` — start a fresh conversation
 
@@ -142,17 +142,13 @@ MIT
 These are concrete improvements we want to make to the MCP server program itself:
 
 1. **Pin relay dependency to a commit/tag** — `install.sh` clones `evangit2/g365-headless-relay` without pinning. Add `RELAY_REF` to `.env.example` and verify the checkout.
-2. **Harden `.env` credential handling** — enforce `0600` permissions, refuse to start if world-readable, redact secrets from logs/errors.
-3. **Orphaned relay cleanup** — `start.sh` launches the relay in the background but if the MCP server exits, the relay stays running. Add PID tracking and cleanup in both `start.sh` and `mcp-server.js`.
-4. **Session / conversation isolation** — every call currently starts a fresh Copilot conversation. Add an optional `conversation_id` parameter so Hermes can keep context across multiple calls for one task.
-5. **Streaming support** — long code generation can hit `max_tokens`. Add a `stream` option or chunked polling so big outputs do not truncate.
-6. **Browserless sign-in research** — investigate MSAL / device-code / other flows to eventually eliminate Chromium for authentication.
-7. **Request audit and usage tracking** — log every MCP call locally (prompt length, model, duration) so users can see M365 usage.
-8. **Better error classification** — map relay errors to actionable MCP messages: "auth expired → re-run sign-in", "rate limited → wait N seconds", "relay not ready → check VNC URL".
-9. **Tool result caching** — cache identical prompts for a short TTL to avoid repeated Copilot calls for the same question.
-10. **Multi-account support** — allow switching between multiple M365 profiles/accounts via env var or tool argument.
-11. **Add tests** — unit tests for `RelayClient` and `AuthManager`, plus integration tests against the relay.
-12. **HTTP / SSE MCP transport** — currently only stdio; add HTTP transport so remote agents can connect without spawning a local process.
+2. **Session / conversation isolation** — every call currently starts a fresh Copilot conversation. Add an optional `conversation_id` parameter so Hermes can keep context across multiple calls for one task.
+3. **Streaming support** — long code generation can hit `max_tokens`. Add a `stream` option or chunked polling so big outputs do not truncate.
+4. **Browserless sign-in research** — investigate MSAL / device-code / other flows to eventually eliminate Chromium for authentication.
+5. **Request audit and usage tracking** — log every MCP call locally (prompt length, model, duration) so users can see M365 usage.
+6. **Tool result caching** — cache identical prompts for a short TTL to avoid repeated Copilot calls for the same question.
+7. **Multi-account support** — allow switching between multiple M365 profiles/accounts via env var or tool argument.
+8. **HTTP / SSE MCP transport** — currently only stdio; add HTTP transport so remote agents can connect without spawning a local process.
 
 ---
 

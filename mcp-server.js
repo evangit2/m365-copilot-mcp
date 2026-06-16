@@ -1,9 +1,15 @@
 #!/usr/bin/env node
+const path = require('path');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { RelayClient } = require('./lib/relay-client');
 const { AuthManager } = require('./lib/auth-manager');
+const { loadEnvFile } = require('./lib/env');
+
+// Hermes usually spawns the MCP server directly, not through start.sh, so load
+// local .env here too. Explicit environment variables still take precedence.
+loadEnvFile(path.join(__dirname, '.env'));
 
 const RELAY_URL = process.env.RELAY_URL || 'http://127.0.0.1:9000';
 const RELAY_API_KEY = process.env.RELAY_API_KEY || null;
@@ -13,11 +19,52 @@ const DEFAULT_MODEL = process.env.M365_MODEL || 'gpt-5.5-think-deeper';
 
 const client = new RelayClient({ baseUrl: RELAY_URL, apiKey: RELAY_API_KEY });
 const auth = new AuthManager({ relayUrl: RELAY_URL, relayRepo: G365_RELAY_REPO, mode: AUTH_MODE });
+let shuttingDown = false;
+let startedRelay = false;
+
+function isBrokenPipeError(err) {
+  return err && (
+    err.code === 'EPIPE' ||
+    err.code === 'ERR_STREAM_DESTROYED' ||
+    err.code === 'ECONNRESET'
+  );
+}
+
+function shutdown(code = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (startedRelay) {
+    try { auth.stopRelay(); } catch (e) {}
+  }
+  setImmediate(() => process.exit(code));
+}
+
+function handleFatalError(err) {
+  if (isBrokenPipeError(err)) {
+    shutdown(0);
+    return;
+  }
+  console.error('[mcp] Fatal error:', err);
+  shutdown(1);
+}
+
+// If the MCP client goes away while a response is being written, Node emits an
+// error on process.stdout. Without this listener, stdio transport writes crash
+// with an unhandled EPIPE stack trace in Hermes logs.
+process.stdout.on('error', handleFatalError);
+process.stdin.on('end', () => shutdown(0));
+process.stdin.on('close', () => shutdown(0));
+process.on('uncaughtException', handleFatalError);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[mcp] Unhandled rejection at:', promise, 'reason:', reason);
+});
 
 async function main() {
   // Ensure relay is reachable before starting MCP transport.
+  let relayState;
   try {
-    await auth.ensureRelayRunning();
+    relayState = await auth.ensureRelayRunning();
+    startedRelay = relayState?.started === true;
   } catch (e) {
     console.error(`[mcp] Warning: could not confirm relay readiness: ${e.message}`);
     // Continue anyway; tools will report status errors.
@@ -39,8 +86,16 @@ async function main() {
     tools: [
       {
         name: 'm365_copilot_status',
-        description: 'Check whether the M365 Copilot relay is healthy and ready.',
-        inputSchema: { type: 'object', properties: {} },
+        description: 'Check whether the M365 Copilot relay is healthy and ready. Set deep_check=true to verify the captured Copilot session with a tiny chat request.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            deep_check: {
+              type: 'boolean',
+              description: 'If true, send a tiny chat completion to catch stale auth tokens that /health cannot detect.',
+            },
+          },
+        },
       },
       {
         name: 'm365_copilot_chat',
@@ -112,15 +167,34 @@ async function main() {
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+    const { name, arguments: rawArgs } = request.params;
+    const args = rawArgs || {};
 
     if (name === 'm365_copilot_status') {
       try {
         const health = await client.health();
+        const status = { ready: health.status === 'ok', ...health };
+
+        if (args?.deep_check === true) {
+          try {
+            const probe = await client.chat('MCP status deep check. Reply with exactly: MCP_STATUS_OK', {
+              model: DEFAULT_MODEL,
+              temperature: 0,
+              max_tokens: 32,
+            });
+            status.chat_ready = typeof probe.content === 'string' && probe.content.trim().length > 0;
+            status.chat_probe = probe.content.slice(0, 200);
+          } catch (e) {
+            status.chat_ready = false;
+            status.chat_error = e.message;
+            status.chat_error_code = e.code;
+          }
+        }
+
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify({ ready: health.status === 'ok', ...health }, null, 2),
+            text: JSON.stringify(status, null, 2),
           }],
         };
       } catch (e) {
@@ -229,17 +303,7 @@ function formatResult(result, includeReasoning = false) {
   return out.trim();
 }
 
-main().catch(err => {
-  console.error('[mcp] Fatal error:', err);
-  process.exit(1);
-});
+main().catch(handleFatalError);
 
-process.on('SIGINT', () => {
-  auth.stopRelay();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  auth.stopRelay();
-  process.exit(0);
-});
+process.on('SIGINT', () => shutdown(0));
+process.on('SIGTERM', () => shutdown(0));

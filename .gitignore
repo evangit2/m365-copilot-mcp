@@ -3,17 +3,21 @@
 *.log
 logs/
 *.pid
-
-# Dependencies
 node_modules/
-
-# OS / IDE
 .DS_Store
 .vscode/
 .idea/
 Thumbs.db
-
-# Chrome profiles and auth artifacts created by the relay
 profile/
 profile-*/
 screenshots/
+# Relay lives inside this repo; keep vendor dir but ignore its runtime artifacts
+vendor/**/node_modules/
+vendor/**/*.log
+vendor/**/profile/
+vendor/**/profile-*/
+vendor/**/.env
+vendor/**/logs/
+vendor/**/*.pid
+vendor/**/screenshots/
+

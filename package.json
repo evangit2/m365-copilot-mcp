@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node mcp-server.js",
     "install-deps": "npm install",
-    "test": "node --check mcp-server.js && node --check lib/relay-client.js && node --check lib/auth-manager.js"
+    "test": "node --check mcp-server.js && node --check lib/relay-client.js && node --check lib/auth-manager.js && node --check lib/env.js && node --check test-unit.js && node --check test-epipe.js && node test-unit.js && node test-epipe.js"
   },
   "repository": {
     "type": "git",
