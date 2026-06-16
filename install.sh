@@ -2,7 +2,7 @@
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-G365_REPO="${G365_RELAY_REPO:-$REPO_DIR/vendor/g365-headless-relay}"
+G365_REPO="${G365_RELAY_REPO:-$REPO_DIR/relay}"
 
 # Keep legacy sibling install path discoverable if it already exists.
 if [[ -z "${G365_RELAY_REPO:-}" && -d "$HOME/projects/g365-headless-relay" ]]; then

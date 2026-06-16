@@ -31,6 +31,12 @@
   },
   "homepage": "https://github.com/evangit2/m365-copilot-mcp#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.8.0"
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "uuid": "^14.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1"
   }
 }

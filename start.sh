@@ -16,7 +16,7 @@ RELAY_URL="${RELAY_URL:-http://127.0.0.1:9000}"
 OPENAI_API_PORT="${OPENAI_API_PORT:-9000}"
 OPENAI_API_HOST="${OPENAI_API_HOST:-0.0.0.0}"
 AUTH_MODE="${AUTH_MODE:-existing}"
-G365_REPO="${G365_RELAY_REPO:-$REPO_DIR/vendor/g365-headless-relay}"
+G365_REPO="${G365_RELAY_REPO:-$REPO_DIR/relay}"
 
 # Keep legacy sibling install path discoverable if it already exists.
 if [[ -z "${G365_RELAY_REPO:-}" && -d "$HOME/projects/g365-headless-relay" ]]; then

@@ -6,6 +6,7 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 const { RelayClient } = require('./lib/relay-client');
 const { AuthManager } = require('./lib/auth-manager');
 const { loadEnvFile } = require('./lib/env');
+const { relayChat } = require('./lib/fast-client');
 
 // Hermes usually spawns the MCP server directly, not through start.sh, so load
 // local .env here too. Explicit environment variables still take precedence.
@@ -177,13 +178,14 @@ async function main() {
 
         if (args?.deep_check === true) {
           try {
-            const probe = await client.chat('MCP status deep check. Reply with exactly: MCP_STATUS_OK', {
+            const probe = await relayChat('MCP status deep check. Reply with exactly: MCP_STATUS_OK', {
               model: DEFAULT_MODEL,
-              temperature: 0,
-              max_tokens: 32,
+              maxWaitMs: 60000,
             });
             status.chat_ready = typeof probe.content === 'string' && probe.content.trim().length > 0;
             status.chat_probe = probe.content.slice(0, 200);
+            if (probe.ttftMs != null) status.chat_ttft_ms = probe.ttftMs;
+            if (probe.totalMs != null) status.chat_total_ms = probe.totalMs;
           } catch (e) {
             status.chat_ready = false;
             status.chat_error = e.message;
@@ -258,8 +260,15 @@ async function main() {
     }
 
     try {
-      const result = await client.chat(prompt, { model, temperature, max_tokens: maxTokens, include_reasoning: includeReasoning });
-      const text = formatResult(result, includeReasoning);
+      const startMs = Date.now();
+      const useFast = process.env.MCP_USE_FAST_WS !== 'false';
+      let result;
+      if (useFast) {
+        result = await relayChat(prompt, { model, maxWaitMs: Math.max(maxTokens * 50, 180000) });
+      } else {
+        result = await client.chat(prompt, { model, temperature, max_tokens: maxTokens, include_reasoning: includeReasoning });
+      }
+      const text = formatResult(result, includeReasoning) + (result.ttftMs != null ? `\n\n[ttft: ${result.ttftMs}ms]` : '');
       return { content: [{ type: 'text', text }] };
     } catch (e) {
       return {

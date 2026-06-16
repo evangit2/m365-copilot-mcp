@@ -11,13 +11,14 @@ Thumbs.db
 profile/
 profile-*/
 screenshots/
-# Relay lives inside this repo; keep vendor dir but ignore its runtime artifacts
-vendor/**/node_modules/
-vendor/**/*.log
-vendor/**/profile/
-vendor/**/profile-*/
-vendor/**/.env
-vendor/**/logs/
-vendor/**/*.pid
-vendor/**/screenshots/
+# Relay lives inside this project so the whole stack is self-contained.
+# Keep relay source committed but ignore its runtime artifacts.
+relay/node_modules/
+relay/**/*.log
+relay/profile/
+relay/profile-*/
+relay/.env
+relay/logs/
+relay/**/*.pid
+relay/screenshots/
 
